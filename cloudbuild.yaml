@@ -221,6 +221,6 @@ timeout: 3600s
 options:
   logging: CLOUD_LOGGING_ONLY
 substitutions:
-  _GITHUB_REPO: "20481A04K2/repo11"
+  _GITHUB_REPO: "20481A04K2/repo22"
   _TRIGGER_NAME: "trigger-1"
   GCS_BUCKET: "inosuke-wasi-wasi"
