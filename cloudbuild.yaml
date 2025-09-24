@@ -196,7 +196,7 @@ steps:
     args:
       - -c
       - |
-        # Install jq if not available
+        # Install jq
         apt-get update && apt-get install -y jq
 
         # Load version tag
@@ -204,7 +204,7 @@ steps:
 
         TMP_JSON=/workspace/api_state.json
 
-        # Fetch existing JSON from GCS, or create empty if missing
+        # Fetch existing JSON from GCS or create empty
         if ! gsutil cp gs://$_GCS_BUCKET/api_state.json $$TMP_JSON 2>/dev/null; then
           echo "{}" > $$TMP_JSON
         fi
@@ -213,23 +213,31 @@ steps:
         echo "Workspace content:"
         ls -l /workspace/
 
-        # Loop over API folders (api1/, api2/, api3/)
-        for API_DIR in /workspace/api*/; do
-          API_NAME=$$(basename "$$API_DIR")
-          ZIP_FILE=$$(ls "$$API_DIR"/*-$${VERSION_TAG}.zip 2>/dev/null | head -n1)
-          if [ -f "$$ZIP_FILE" ]; then
-            echo "Updating $_API_NAME with version $$VERSION_TAG"
-            jq --arg api "$_API_NAME" --arg version "$$VERSION_TAG" '.[$$api]=$$version' $$TMP_JSON > tmp.$$.json
-            mv tmp.$$.json $$TMP_JSON
-          else
-            echo "No ZIP found for $$API_NAME, skipping..."
-          fi
-        done
+        # Update JSON for the built API only
+        if [ -f "/workspace/${_API_NAME}-$${VERSION_TAG}.zip" ]; then
+          echo "Updating ${_API_NAME} with version $$VERSION_TAG"
+          jq --arg api "${_API_NAME}" --arg version "$$VERSION_TAG" '.[$$api]=$$version' $$TMP_JSON > tmp.$$.json
+          mv tmp.$$.json $$TMP_JSON
+        else
+          echo "No ZIP found for ${_API_NAME}, skipping..."
+        fi
 
         # Upload updated JSON back to GCS
         gsutil cp $$TMP_JSON gs://$_GCS_BUCKET/api_state.json
         echo "[GCS] Updated api_state.json with latest API versions"
 
+  # ==========================================
+  # Step 6: Display JSON content for verification
+  # ==========================================
+  - name: gcr.io/cloud-builders/gsutil
+    id: show-json
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        echo "Current api_state.json content:"
+        gsutil cp gs://$_GCS_BUCKET/api_state.json /workspace/api_state.json
+        cat /workspace/api_state.json || echo "JSON is empty"
 
 
 timeout: 3600s
