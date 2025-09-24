@@ -1,54 +1,54 @@
 steps:
-# ==========================================
-# Step 0: Wait for previous builds
-# ==========================================
-- name: gcr.io/google.com/cloudsdktool/cloud-sdk
-  entrypoint: bash
-  args:
-    - '-c'
-    - |
-      echo "Checking actively running triggers..."
-      WATCHED_TRIGGERS=("trigger-1" "trigger-3")
-      CURRENT_TRIGGER="$${_TRIGGER_NAME:-trigger-2}"
+  # ==========================================
+  # Step 0: Wait for previous builds
+  # ==========================================
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        echo "Checking actively running triggers..."
+        WATCHED_TRIGGERS=("trigger-1" "trigger-3")
+        CURRENT_TRIGGER="$${_TRIGGER_NAME:-trigger-2}"
 
-      # Get all running/queued builds for current trigger, sorted by createTime
-      SAME_TRIGGER_BUILDS=$$(gcloud builds list --region=asia-east1 \
-        --filter="status:(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$CURRENT_TRIGGER" \
-        --sort-by="createTime" \
-        --format="value(id,createTime)")
+        # Get all running/queued builds for current trigger, sorted by createTime
+        SAME_TRIGGER_BUILDS=$$(gcloud builds list --region=asia-east1 \
+          --filter="status:(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$CURRENT_TRIGGER" \
+          --sort-by="createTime" \
+          --format="value(id,createTime)")
 
-      # Convert to array
-      mapfile -t BUILDS_ARRAY <<< "$$SAME_TRIGGER_BUILDS"
+        # Convert to array
+        mapfile -t BUILDS_ARRAY <<< "$$SAME_TRIGGER_BUILDS"
 
-      # Remove the latest build (assume it’s the current build itself)
-      if [ $${#BUILDS_ARRAY[@]} -gt 0 ]; then
-        unset 'BUILDS_ARRAY[-1]'
-      fi
+        # Remove the latest build (assume it’s the current build itself)
+        if [ $${#BUILDS_ARRAY[@]} -gt 0 ]; then
+          unset 'BUILDS_ARRAY[-1]'
+        fi
 
-      wait_for_build() {
-        local BUILD_ID=$$1
-        local TRIGGER_NAME=$$2
-        while true; do
-          STATUS=$$(gcloud builds describe $$BUILD_ID --region=asia-east1 --format="value(status)")
-          if [[ "$$STATUS" == "SUCCESS" || "$$STATUS" == "FAILURE" || "$$STATUS" == "CANCELLED" ]]; then
-            echo "$$TRIGGER_NAME build $$BUILD_ID finished with $$STATUS"
-            break
-          fi
-          echo "$$TRIGGER_NAME build $$BUILD_ID still running, waiting 15s..."
-          sleep 15
+        wait_for_build() {
+          local BUILD_ID=$$1
+          local TRIGGER_NAME=$$2
+          while true; do
+            STATUS=$$(gcloud builds describe $$BUILD_ID --region=asia-east1 --format="value(status)")
+            if [[ "$$STATUS" == "SUCCESS" || "$$STATUS" == "FAILURE" || "$$STATUS" == "CANCELLED" ]]; then
+              echo "$$TRIGGER_NAME build $$BUILD_ID finished with $$STATUS"
+              break
+            fi
+            echo "$$TRIGGER_NAME build $$BUILD_ID still running, waiting 15s..."
+            sleep 15
+          done
+        }
+
+        # Wait for previous builds of the same trigger
+        for BUILD_INFO in "$${BUILDS_ARRAY[@]}"; do
+          BUILD_ID=$$(echo $$BUILD_INFO | awk '{print $$1}')
+          BUILD_START=$$(echo $$BUILD_INFO | awk '{print $$2}')
+          echo "⏳ Waiting for earlier build $$BUILD_ID of $$CURRENT_TRIGGER started at $$BUILD_START..."
+          wait_for_build $$BUILD_ID $$CURRENT_TRIGGER
         done
-      }
-
-      # Wait for previous builds of the same trigger
-      for BUILD_INFO in "$${BUILDS_ARRAY[@]}"; do
-        BUILD_ID=$$(echo $$BUILD_INFO | awk '{print $$1}')
-        BUILD_START=$$(echo $$BUILD_INFO | awk '{print $$2}')
-        echo "⏳ Waiting for earlier build $$BUILD_ID of $$CURRENT_TRIGGER started at $$BUILD_START..."
-        wait_for_build $$BUILD_ID $$CURRENT_TRIGGER
-      done
 
 
-      echo "✅ All earlier builds completed → proceeding with current trigger $$CURRENT_TRIGGER."
+        echo "✅ All earlier builds completed → proceeding with current trigger $$CURRENT_TRIGGER"
 
 
 
