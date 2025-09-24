@@ -214,10 +214,10 @@ steps:
         ls -l /workspace/
 
         # Update JSON for the built API only
-        if [ -f "/workspace/${_API_NAME}-$${VERSION_TAG}.zip" ]; then
-          echo "Updating ${_API_NAME} with version $$VERSION_TAG"
-          jq --arg api "${_API_NAME}" --arg version "$$VERSION_TAG" '.[$api]=$version' $$TMP_JSON > tmp.$$.json
-          mv tmp.$$.json $$TMP_JSON
+        if [ -f "/workspace/${_API_NAME}-$VERSION_TAG.zip" ]; then
+          echo "Updating ${_API_NAME} with version $VERSION_TAG"
+          jq --arg api "${_API_NAME}" --arg version "$VERSION_TAG" '.[$api]=$version' $$TMP_JSON > tmp.json
+          mv tmp.json $$TMP_JSON
         else
           echo "No ZIP found for ${_API_NAME}, skipping..."
         fi
