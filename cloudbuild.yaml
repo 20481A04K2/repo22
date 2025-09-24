@@ -1,29 +1,4 @@
 steps:
-
-  # ==========================================
-  # Step 2: Generate version tag
-  # ==========================================
-  - name: gcr.io/cloud-builders/gcloud
-    id: generate-version
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        VERSION_TAG="v-$(date +%Y%m%d-%H%M%S)"
-        echo "VERSION_TAG=$$VERSION_TAG" > /workspace/version.env
-        echo "Generated version: $$VERSION_TAG"
-
-  # ==========================================
-  # Step 3: Clone GitHub repo & unzip
-  # ==========================================
-  - name: gcr.io/cloud-builders/git
-    id: clone-repo
-    args:
-      - clone
-      - https://github.com/${_GITHUB_REPO}.git
-      - /workspace/app
-
-
   # ==========================================
   # Step 1: Wait logic for running triggers and MIG VM readiness
   # ==========================================
@@ -158,185 +133,94 @@ steps:
           fi
         done
   # ==========================================
-  # Step 4.1: SSH into MIG VMs and run startup script
+  # Step 1: Generate version tag
   # ==========================================
   - name: gcr.io/cloud-builders/gcloud
-    id: ssh-run-startup
+    id: generate-version
     entrypoint: bash
     args:
       - -c
       - |
-        set -e
-        # Explicitly set MIG name and zone
-        MIG_NAME="${_MIG_NAME}"
-        ZONE="${_ZONE}"
-        echo "[SSH] Fetching MIG VMs..."
-        VM_LIST=$$(gcloud compute instance-groups managed list-instances $${MIG_NAME} \
-          --zone=$${ZONE} --format="value(instance.basename())")
+        VERSION_TAG="v-$(date +%Y%m%d-%H%M%S)"
+        echo "VERSION_TAG=$$VERSION_TAG" > /workspace/version.env
+        echo "Generated version: $$VERSION_TAG"
 
-        if [[ -z "$$VM_LIST" ]]; then
-          echo "[SSH] No VMs found in MIG — exiting."
-          exit 1
-        fi
-        echo "[SSH] Found VMs: $$VM_LIST"
-        
+  # ==========================================
+  # Step 2: Build APIs and create ZIPs
+  # ==========================================
+  - name: gcr.io/cloud-builders/git
+    id: clone-repo
+    args:
+      - clone
+      - https://github.com/${_GITHUB_REPO}.git
+      - /workspace/app
 
-        for VM in $$VM_LIST; do
-          (
-            echo "[SSH] Executing commands on $$VM..."
-            gcloud compute ssh sajja_vamsi@$$VM \
-            --zone=$${ZONE} \
-            --quiet \
-            --ssh-flag="-o StrictHostKeyChecking=no" \
-            --ssh-flag="-o UserKnownHostsFile=/dev/null" \
-            --command '
-              set -e
-              echo "Installing Python and dependencies..."
-              sudo apt-get update -y
-              sudo apt-get install -y python3 python3-pip unzip curl git
-              mkdir -p ~/flask-app
-              cd ~/flask-app
-              git clone https://github.com/20481A04K2/repo1.git .
-              python3 -m venv venv
-              source venv/bin/activate
-              pip install --upgrade pip
-              pip install flask
-              echo "Starting Flask app..."
-              nohup python app.py > flask.log 2>&1 &
-              sleep 5
-              if pgrep -f "app.py" > /dev/null; then
-                echo "[CHECK] Flask app is running ✅"
-              else
-                echo "[CHECK] Flask app failed to start ❌"
-              fi
-            '
-          ) &
+  - name: 'python:3.11'
+    id: build-apis
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        source /workspace/version.env
+        cd /workspace/app
+
+        # Assume each API is in a folder api1, api2, ...
+        for API in */; do
+          API_NAME=$${API%/}
+          echo "[BUILD] Processing $$API_NAME..."
+          cd "$$API_NAME"
+
+          # Create ZIP of API folder
+          zip -r "/workspace/${API_NAME}-${VERSION_TAG}.zip" *
+
+          cd ..
         done
 
-        echo "[SSH] Waiting for all background jobs to finish..."
-        wait
-        echo "[SSH] Startup script executed on all MIG VMs."
-
   # ==========================================
-  # Step 5: Create image from MIG VM
+  # Step 3: Upload API ZIPs to GCS
   # ==========================================
-  - name: gcr.io/cloud-builders/gcloud
-    id: create-image
+  - name: gcr.io/cloud-builders/gsutil
+    id: upload-zips
     entrypoint: bash
     args:
       - -c
       - |
         source /workspace/version.env
-        echo "[MIG] Fetching MIG instance boot disk..."
-        VM_NAME=$(gcloud compute instance-groups managed list-instances ${_MIG_NAME} --zone ${_ZONE} --format="value(instance.basename())" | head -n 1)
-        BOOT_DISK=$(gcloud compute instances describe $$VM_NAME --zone=${_ZONE} --format="value(disks[0].source.basename())")
-
-        echo "[IMAGE] Creating image from boot disk $$BOOT_DISK"
-        gcloud compute images create backend-image-$$VERSION_TAG \
-          --source-disk=$$BOOT_DISK \
-          --source-disk-zone=${_ZONE} \
-          --family=backend-family \
-          --project=crested-polygon-472204-n5 \
-          --force
-
-  # ==========================================
-  # Step 6: Create instance template
-  # ==========================================
-  - name: gcr.io/cloud-builders/gcloud
-    id: create-template
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        source /workspace/version.env
-        echo "[GCE] Creating instance template..."
-        gcloud compute instance-templates create backend-template-$$VERSION_TAG \
-          --project=crested-polygon-472204-n5 \
-          --machine-type=n2-standard-2 \
-          --image=backend-image-$$VERSION_TAG \
-          --image-project=crested-polygon-472204-n5 \
-          --service-account=613125347481-compute@developer.gserviceaccount.com \
-          --scopes=https://www.googleapis.com/auth/cloud-platform \
-          --metadata-from-file=startup-script=startup-script.sh \
-          --network=default \
-          --subnet=default \
-          --tags=http-server,https-server,lb-health-check \
-          --region=asia-east1
-
-  # ==========================================
-  # Step 7: Rolling update MIG + delete old VMs
-  # ==========================================
-  - name: gcr.io/cloud-builders/gcloud
-    id: update-mig
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        set -e
-        source /workspace/version.env
-
-        # Explicitly set MIG name and zone
-        MIG_NAME="${_MIG_NAME}"
-        ZONE="${_ZONE}"
-        LATEST_TEMPLATE="backend-template-$${VERSION_TAG}"
-        echo "$$MIG"
-        echo "[MIG] Performing rolling update with template: $$LATEST_TEMPLATE"
-        gcloud compute instance-groups managed rolling-action start-update \
-          "$$MIG_NAME" \
-          --zone="$$ZONE" \
-          --version="template=$$LATEST_TEMPLATE" \
-          --minimal-action=replace \
-          --max-surge=1 \
-          --max-unavailable=0
-
-        echo "[WAIT] Waiting for at least one healthy VM from new template ($$LATEST_TEMPLATE)..."
-        ATTEMPTS=0
-        MAX_ATTEMPTS=30
-
-        while true; do
-          # Check if any VM from the new template is running and action is NONE (ready)
-          READY_VM=$$(gcloud compute instance-groups managed list-instances "$$MIG_NAME" \
-            --zone="$$ZONE" \
-            --format="value(name,version.instanceTemplate.basename(),currentAction,healthState)" \
-            | awk -v tmpl="$$LATEST_TEMPLATE" '$$2==tmpl && $$3=="NONE" {print $$1}' | head -n1)
-
-          if [[ -n "$$READY_VM" ]]; then
-            echo "[SUCCESS] Found healthy RUNNING VM from new template: $$READY_VM"
-            break
-          fi
-
-          ATTEMPTS=$$((ATTEMPTS+1))
-          if [[ $$ATTEMPTS -ge $$MAX_ATTEMPTS ]]; then
-            echo "[WARNING] Timed out waiting for new VM from template $$LATEST_TEMPLATE. Proceeding to cleanup."
-            break
-          fi
-
-          echo "[WAIT] Attempt $$ATTEMPTS/$$MAX_ATTEMPTS - No ready VM yet. Retrying in 10s..."
-          sleep 10
+        echo "[GCS] Uploading API ZIPs..."
+        for ZIP_FILE in /workspace/*-${VERSION_TAG}.zip; do
+          API_NAME=$(basename "$$ZIP_FILE" | cut -d'-' -f1)
+          gsutil cp "$$ZIP_FILE" gs://$GCS_BUCKET/$$API_NAME/$${VERSION_TAG}.zip
+          echo "[GCS] Uploaded $$ZIP_FILE to gs://$GCS_BUCKET/$$API_NAME/"
         done
 
-        echo "[CLEANUP] Deleting old instances (not using new template)..."
-        OLD_INSTANCES=$$(gcloud compute instance-groups managed list-instances "$$MIG_NAME" \
-          --zone="$$ZONE" \
-          --format="value(name,version.instanceTemplate.basename())" \
-          | awk -v tmpl="$$LATEST_TEMPLATE" '$$2!=tmpl {print $$1}')
+  # ==========================================
+  # Step 4: Update api_state.json in GCS
+  # ==========================================
+  - name: gcr.io/cloud-builders/gsutil
+    id: update-json
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        source /workspace/version.env
+        TMP_JSON=/workspace/api_state.json
+        echo "{}" > $TMP_JSON
 
-        if [[ -z "$$OLD_INSTANCES" ]]; then
-          echo "[CLEANUP] No old instances found — nothing to delete."
-        else
-          echo "[CLEANUP] Deleting old instances: $$OLD_INSTANCES"
-          for VM in $$OLD_INSTANCES; do
-            echo "[DELETE] Deleting old instance: $$VM"
-            gcloud compute instances delete "$$VM" --zone="$$ZONE" --quiet --delete-disks=all || true
-          done
-        fi
+        for API_ZIP in /workspace/*-${VERSION_TAG}.zip; do
+          API_NAME=$(basename "$API_ZIP" | cut -d'-' -f1)
+          # Update JSON with latest version for each API
+          jq --arg api "$API_NAME" --arg version "$VERSION_TAG" '.[$api]=$version' $TMP_JSON > tmp.$$.json
+          mv tmp.$$.json $TMP_JSON
+        done
 
+        # Upload updated JSON to GCS
+        gsutil cp $TMP_JSON gs://$GCS_BUCKET/api_state.json
+        echo "[GCS] Updated api_state.json with latest versions"
 
-
+timeout: 3600s
 options:
   logging: CLOUD_LOGGING_ONLY
 substitutions:
+  _GITHUB_REPO: "20481A04K2/repo11"
   _TRIGGER_NAME: "trigger-1"
-  _MIG_NAME: "vamsi-mig"
-  _ZONE: "asia-south1-c"
-  _GITHUB_REPO: "20481A04K2/repo1"
+  GCS_BUCKET: "inosuke-wasi-wasi"
