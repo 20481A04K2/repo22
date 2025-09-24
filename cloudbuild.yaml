@@ -14,20 +14,10 @@ steps:
 
         echo "Current Trigger: $$CURRENT_TRIGGER"
 
-        # Get CURRENT build info - only if it's still running or queued
-        CURRENT_BUILD_INFO=$$(gcloud builds list --region=asia-east1 \
-          --filter="status:(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$CURRENT_TRIGGER" \
-          --sort-by="~createTime" --limit=1 \
-          --format="value(id,createTime)")
-
-        if [[ -z "$$CURRENT_BUILD_INFO" ]]; then
-          echo "No ongoing build found for $$CURRENT_TRIGGER (maybe already finished)."
-          exit 0
-        fi
-
-        CURRENT_BUILD_ID=$$(echo "$$CURRENT_BUILD_INFO" | awk '{print $$1}')
-        CURRENT_START_TIME=$$(echo "$$CURRENT_BUILD_INFO" | awk '{print $$2}')
-        CURRENT_START_EPOCH=$$(date -d "$$CURRENT_START_TIME" +%s)
+        # Use the environment variable BUILD_ID for the current build
+        CURRENT_BUILD_ID="$${BUILD_ID}"
+        CURRENT_START_TIME=$$(gcloud builds describe $$CURRENT_BUILD_ID --region=asia-east1 --format="value(createTime)")
+        CURRENT_START_EPOCH=$$(date -u -d "$$CURRENT_START_TIME" +%s)
 
         echo "Current build $$CURRENT_BUILD_ID started at: $$CURRENT_START_TIME (epoch: $$CURRENT_START_EPOCH)"
 
@@ -61,7 +51,7 @@ steps:
         for BUILD_INFO in $$SAME_TRIGGER_BUILDS; do
           BUILD_ID=$$(echo $$BUILD_INFO | awk '{print $$1}')
           BUILD_START=$$(echo $$BUILD_INFO | awk '{print $$2}')
-          BUILD_EPOCH=$$(date -d "$$BUILD_START" +%s)
+          BUILD_EPOCH=$$(date -u -d "$$BUILD_START" +%s)
 
           # Skip the current build itself
           if [[ "$$BUILD_ID" == "$$CURRENT_BUILD_ID" ]]; then
@@ -93,7 +83,7 @@ steps:
 
           BUILD_ID=$$(echo "$$BUILD_INFO" | awk '{print $$1}')
           BUILD_START=$$(echo "$$BUILD_INFO" | awk '{print $$2}')
-          BUILD_EPOCH=$$(date -d "$$BUILD_START" +%s)
+          BUILD_EPOCH=$$(date -u -d "$$BUILD_START" +%s)
 
           if [[ $$BUILD_EPOCH -lt $$CURRENT_START_EPOCH ]]; then
             echo "⏳ Waiting for earlier build $$BUILD_ID of trigger $$TRIGGER started at $$BUILD_START..."
