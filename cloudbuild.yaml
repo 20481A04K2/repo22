@@ -15,7 +15,7 @@ steps:
         echo "Current Trigger: $$CURRENT_TRIGGER"
 
         # Get CURRENT build info - only if it's still running or queued
-        CURRENT_BUILD_INFO=$$(gcloud builds list --region=asia-southeast1 \
+        CURRENT_BUILD_INFO=$$(gcloud builds list --region=asia-east1 \
           --filter="status:(WORKING OR QUEUED) AND substitutions.TRIGGER_NAME=$$CURRENT_TRIGGER" \
           --sort-by="~createTime" --limit=1 \
           --format="value(id,createTime)")
@@ -37,7 +37,7 @@ steps:
           local TRIGGER_NAME=$$1
           local BUILD_ID=$$2
           while true; do
-            STATUS=$$(gcloud builds describe $$BUILD_ID --region=asia-southeast1 --format="value(status)")
+            STATUS=$$(gcloud builds describe $$BUILD_ID --region=asia-east1 --format="value(status)")
             if [[ "$$STATUS" == "SUCCESS" || "$$STATUS" == "FAILURE" || "$$STATUS" == "CANCELLED" ]]; then
               echo "$$TRIGGER_NAME build $$BUILD_ID finished with $$STATUS"
               break
@@ -55,7 +55,7 @@ steps:
         # =========================
         # Wait for earlier builds of the SAME trigger (time-based with seconds)
         # =========================
-        SAME_TRIGGER_BUILDS=$$(gcloud builds list --region=asia-southeast1 \
+        SAME_TRIGGER_BUILDS=$$(gcloud builds list --region=asia-east1 \
           --filter="status:(WORKING OR QUEUED) AND substitutions.TRIGGER_NAME=$$CURRENT_TRIGGER" \
           --sort-by="createTime" \
           --format="value(id,createTime)")
@@ -79,7 +79,7 @@ steps:
             continue
           fi
 
-          BUILD_INFO=$$(gcloud builds list --region=asia-southeast1 \
+          BUILD_INFO=$$(gcloud builds list --region=asia-east1 \
             --filter="status:(WORKING OR QUEUED) AND substitutions.TRIGGER_NAME=$$TRIGGER" \
             --sort-by="~createTime" --limit=1 --format="value(id,createTime)")
 
