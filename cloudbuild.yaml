@@ -142,7 +142,7 @@ steps:
       - -c
       - |
         VERSION_TAG="v-$(date +%Y%m%d-%H%M%S)"
-        echo "VERSION_TAG=$$VERSION_TAG" > /workspace/version.env
+        echo "VERSION_TAG=$VERSION_TAG" > /workspace/version.env
         echo "Generated version: $$VERSION_TAG"
 
   # ==========================================
