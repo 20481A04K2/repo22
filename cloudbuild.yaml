@@ -1,11 +1,11 @@
 steps:
   # ==========================================
-  # Step 1: Wait logic for running triggers and MIG VM readiness
+  # Step 1: Wait logic for running triggers
   # ==========================================
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: bash
     args:
-      - -c
+      - '-c'
       - |
         echo "Checking current trigger against actively running triggers..."
 
@@ -13,202 +13,84 @@ steps:
 
         CURRENT_TRIGGER="$${_TRIGGER_NAME:-trigger-2}"
 
-        echo "Current Trigger: $$CURRENT_TRIGGER"
+        echo "Current Trigger: $CURRENT_TRIGGER"
 
         # Get CURRENT build info - only if it's still running or queued
-        CURRENT_BUILD_INFO=$$(gcloud builds list --region=asia-southeast1 \
-          --filter="status:(WORKING OR QUEUED) AND substitutions.TRIGGER_NAME=$$CURRENT_TRIGGER" \
+        CURRENT_BUILD_INFO=$(gcloud builds list --region=asia-southeast1 \
+          --filter="status:(WORKING OR QUEUED) AND substitutions.TRIGGER_NAME=$CURRENT_TRIGGER" \
           --sort-by="~createTime" --limit=1 \
           --format="value(id,createTime)")
 
-        if [[ -z "$$CURRENT_BUILD_INFO" ]]; then
-          echo "No ongoing build found for $$CURRENT_TRIGGER (maybe already finished)."
+        if [[ -z "$CURRENT_BUILD_INFO" ]]; then
+          echo "No ongoing build found for $CURRENT_TRIGGER (maybe already finished)."
           exit 0
         fi
 
-        CURRENT_BUILD_ID=$$(echo "$$CURRENT_BUILD_INFO" | awk '{print $$1}')
-        CURRENT_START_TIME=$$(echo "$$CURRENT_BUILD_INFO" | awk '{print $$2}')
+        CURRENT_BUILD_ID=$(echo "$CURRENT_BUILD_INFO" | awk '{print $1}')
+        CURRENT_START_TIME=$(echo "$CURRENT_BUILD_INFO" | awk '{print $2}')
 
-        echo "Current build $$CURRENT_BUILD_ID started at: $$CURRENT_START_TIME"
+        echo "Current build $CURRENT_BUILD_ID started at: $CURRENT_START_TIME"
 
         wait_for_build() {
-          local TRIGGER_NAME=$$1
-          local BUILD_ID=$$2
+          local TRIGGER_NAME=$1
+          local BUILD_ID=$2
           while true; do
-            STATUS=$$(gcloud builds describe $$BUILD_ID --region=asia-southeast1 --format="value(status)")
-            if [[ "$$STATUS" == "SUCCESS" || "$$STATUS" == "FAILURE" || "$$STATUS" == "CANCELLED" ]]; then
-              echo "$$TRIGGER_NAME build $$BUILD_ID finished with $$STATUS"
+            STATUS=$(gcloud builds describe $BUILD_ID --region=asia-southeast1 --format="value(status)")
+            if [[ "$STATUS" == "SUCCESS" || "$STATUS" == "FAILURE" || "$STATUS" == "CANCELLED" ]]; then
+              echo "$TRIGGER_NAME build $BUILD_ID finished with $STATUS"
               break
             fi
-            echo "$$TRIGGER_NAME build $$BUILD_ID still running, waiting 15s..."
+            echo "$TRIGGER_NAME build $BUILD_ID still running, waiting 15s..."
             sleep 15
           done
-          if [[ "$$STATUS" == "SUCCESS" ]]; then
-            echo "$$TRIGGER_NAME succeeded"
+          if [[ "$STATUS" == "SUCCESS" ]]; then
+            echo "$TRIGGER_NAME succeeded"
           else
-            echo "$$TRIGGER_NAME failed/cancelled"
+            echo "$TRIGGER_NAME failed/cancelled"
           fi
         }
 
         # =========================
-        # Wait for earlier builds of the SAME trigger
+        # Wait for earlier builds of the SAME trigger (time-based)
         # =========================
-        PREV_SAME_TRIGGER=$$(gcloud builds list --region=asia-southeast1 \
-          --filter="status:(WORKING OR QUEUED) AND substitutions.TRIGGER_NAME=$$CURRENT_TRIGGER AND createTime<'$$CURRENT_START_TIME'" \
-          --sort-by="~createTime" --limit=1 --format="value(id)")
+        SAME_TRIGGER_BUILDS=$(gcloud builds list --region=asia-southeast1 \
+          --filter="status:(WORKING OR QUEUED) AND substitutions.TRIGGER_NAME=$CURRENT_TRIGGER" \
+          --sort-by="createTime" \
+          --format="value(id,createTime)")
 
-        if [[ -n "$$PREV_SAME_TRIGGER" ]]; then
-          echo "⏳ Previous build $$PREV_SAME_TRIGGER of the same trigger ($$CURRENT_TRIGGER) is still running. Waiting..."
-          wait_for_build "$$CURRENT_TRIGGER" "$$PREV_SAME_TRIGGER"
-        fi
-
-        # =========================
-        # Wait for earlier builds of other triggers
-        # =========================
-        for TRIGGER in "$${WATCHED_TRIGGERS[@]}"; do
-          if [[ "$$TRIGGER" == "$$CURRENT_TRIGGER" ]]; then
-            continue
-          fi
-
-          BUILD_INFO=$$(gcloud builds list --region=asia-southeast1 \
-            --filter="status:(WORKING OR QUEUED) AND substitutions.TRIGGER_NAME=$$TRIGGER" \
-            --sort-by="~createTime" --limit=1 --format="value(id,createTime)")
-
-          if [[ -z "$$BUILD_INFO" ]]; then
-            echo "No running build found for $$TRIGGER, skipping."
-            continue
-          fi
-
-          BUILD_ID=$$(echo "$$BUILD_INFO" | awk '{print $$1}')
-          BUILD_START=$$(echo "$$BUILD_INFO" | awk '{print $$2}')
-
-          if [[ "$$BUILD_START" < "$$CURRENT_START_TIME" ]]; then
-            echo "⏳ Waiting for earlier build $$BUILD_ID of trigger $$TRIGGER started at $$BUILD_START..."
-            wait_for_build "$$TRIGGER" "$$BUILD_ID"
+        for BUILD_INFO in $SAME_TRIGGER_BUILDS; do
+          BUILD_ID=$(echo $BUILD_INFO | awk '{print $1}')
+          BUILD_START=$(echo $BUILD_INFO | awk '{print $2}')
+          if [[ "$BUILD_START" < "$CURRENT_START_TIME" ]]; then
+            echo "⏳ Waiting for previous build $BUILD_ID of same trigger ($CURRENT_TRIGGER) started at $BUILD_START..."
+            wait_for_build "$CURRENT_TRIGGER" "$BUILD_ID"
           fi
         done
 
-        echo "✅ All earlier builds completed → proceeding with current trigger $$CURRENT_TRIGGER."
+        # =========================
+        # Wait for earlier builds of other triggers (time-based)
+        # =========================
+        for TRIGGER in "${WATCHED_TRIGGERS[@]}"; do
+          if [[ "$TRIGGER" == "$CURRENT_TRIGGER" ]]; then
+            continue
+          fi
 
-  # ==========================================
-  # Step 1: Generate version tag
-  # ==========================================
-  - name: gcr.io/cloud-builders/gcloud
-    id: generate-version
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        VERSION_TAG="v-$(date +%Y%m%d-%H%M%S)"
-        echo "VERSION_TAG=$$VERSION_TAG" > /workspace/version.env
-        echo "Generated version: $$VERSION_TAG"
+          BUILD_INFO=$(gcloud builds list --region=asia-southeast1 \
+            --filter="status:(WORKING OR QUEUED) AND substitutions.TRIGGER_NAME=$TRIGGER" \
+            --sort-by="~createTime" --limit=1 --format="value(id,createTime)")
 
-  # ==========================================
-  # Step 2: Clone GitHub repo
-  # ==========================================
-  - name: gcr.io/cloud-builders/git
-    id: clone-repo
-    args:
-      - clone
-      - https://github.com/${_GITHUB_REPO}.git
-      - /workspace/app
+          if [[ -z "$BUILD_INFO" ]]; then
+            echo "No running build found for $TRIGGER, skipping."
+            continue
+          fi
 
-  # ==========================================
-  # Step 3: Build the specified API and create ZIP
-  # ==========================================
-  - name: 'python:3.11'
-    id: build-api
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        apt-get update && apt-get install -y zip
-        source /workspace/version.env
-        cd /workspace/app/${_API_NAME}
+          BUILD_ID=$(echo "$BUILD_INFO" | awk '{print $1}')
+          BUILD_START=$(echo "$BUILD_INFO" | awk '{print $2}')
 
-        echo "[BUILD] Processing ${_API_NAME}..."
+          if [[ "$BUILD_START" < "$CURRENT_START_TIME" ]]; then
+            echo "⏳ Waiting for earlier build $BUILD_ID of trigger $TRIGGER started at $BUILD_START..."
+            wait_for_build "$TRIGGER" "$BUILD_ID"
+          fi
+        done
 
-        # Create ZIP of API folder
-        zip -r "/workspace/${_API_NAME}-$${VERSION_TAG}.zip" *
-
-  # ==========================================
-  # Step 4: Upload API ZIP to GCS
-  # ==========================================
-  - name: gcr.io/cloud-builders/gsutil
-    id: upload-zip
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        source /workspace/version.env
-        echo "[GCS] Uploading ${_API_NAME} ZIP..."
-        gsutil cp "/workspace/${_API_NAME}-$${VERSION_TAG}.zip" gs://$_GCS_BUCKET/${_API_NAME}/$${VERSION_TAG}.zip
-        echo "[GCS] Uploaded /workspace/${_API_NAME}-$${VERSION_TAG}.zip to gs://$_GCS_BUCKET/${_API_NAME}/"
-
-  # ==========================================
-  # Step 5: Update api_state.json in GCS
-  # ==========================================
-  - name: gcr.io/cloud-builders/gsutil
-    id: update-json
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        # Install jq
-        apt-get update && apt-get install -y jq
-
-        # Load version tag
-        source /workspace/version.env
-
-        TMP_JSON="api_state.json"
-
-        # Fetch existing JSON from GCS or create empty
-        if ! gsutil cp gs://$_GCS_BUCKET/api_state.json "$$TMP_JSON" 2>/dev/null; then
-          echo "{}" > "$$TMP_JSON"
-        fi
-
-        echo "Version tag: $$VERSION_TAG"
-        echo "Workspace content:"
-        ls -l /workspace/
-
-        ZIP_FILE="/workspace/${_API_NAME}-$$VERSION_TAG.zip"
-
-        # Update JSON for the built API only
-        if [ -f "$$ZIP_FILE" ]; then
-          echo "Updating ${_API_NAME} with version $$VERSION_TAG"
-          jq --arg api "${_API_NAME}" --arg version "$$VERSION_TAG" '.[$api]=$version' "$$TMP_JSON" > tmp.json
-          mv tmp.json "$$TMP_JSON"
-          echo "Updated JSON file: $$TMP_JSON"
-        else
-          echo "No ZIP found for ${_API_NAME}, skipping JSON update."
-        fi
-
-        # Upload updated JSON back to GCS
-        gsutil cp "$$TMP_JSON" gs://$_GCS_BUCKET/api_state.json
-        echo "[GCS] Updated api_state.json with latest API versions"
-
-  # ==========================================
-  # Step 6: Display JSON content for verification
-  # ==========================================
-  - name: gcr.io/cloud-builders/gsutil
-    id: show-json
-    entrypoint: bash
-    args:
-      - -c
-      - |
-        echo "Current api_state.json content:"
-        gsutil cp gs://$_GCS_BUCKET/api_state.json ./api_state.json
-        if command -v jq >/dev/null 2>&1; then
-          jq . ./api_state.json || cat ./api_state.json
-        else
-          cat ./api_state.json
-        fi
-
-timeout: 3600s
-options:
-  logging: CLOUD_LOGGING_ONLY
-substitutions:
-  _GITHUB_REPO: "20481A04K2/repo22"
-  _TRIGGER_NAME: "trigger-2"
-  _GCS_BUCKET: "inosuke-wasi-wasi"
-  _API_NAME: "api2"
+        echo "✅ All earlier builds completed → proceeding with current trigger $CURRENT_TRIGGER."
