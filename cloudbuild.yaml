@@ -205,8 +205,8 @@ steps:
         TMP_JSON=/workspace/api_state.json
 
         # Fetch existing JSON from GCS or create empty
-        if ! gsutil cp gs://$_GCS_BUCKET/api_state.json $$TMP_JSON 2>/dev/null; then
-          echo "{}" > $$TMP_JSON
+        if ! gsutil cp gs://$_GCS_BUCKET/api_state.json $TMP_JSON 2>/dev/null; then
+          echo "{}" > $TMP_JSON
         fi
 
         echo "Version tag: $$VERSION_TAG"
@@ -214,16 +214,16 @@ steps:
         ls -l /workspace/
 
         # Update JSON for the built API only
-        if [ -f "/workspace/${_API_NAME}-$$VERSION_TAG.zip" ]; then
-          echo "Updating ${_API_NAME} with version $$VERSION_TAG"
-          jq --arg api "${_API_NAME}" --arg version "$$VERSION_TAG" '.[$api]=$version' $$TMP_JSON > tmp.json
-          mv tmp.json $$TMP_JSON
+        if [ -f "/workspace/${_API_NAME}-$VERSION_TAG.zip" ]; then
+          echo "Updating ${_API_NAME} with version $VERSION_TAG"
+          jq --arg api "${_API_NAME}" --arg version "$VERSION_TAG" '.[$api]=$version' $TMP_JSON > tmp.json
+          mv tmp.json $TMP_JSON
         else
-          echo "No ZIP found for ${_API_NAME}, skipping.. $$TMP_JSON."
+          echo "No ZIP found for ${_API_NAME}, skipping.. $TMP_JSON."
         fi
 
         # Upload updated JSON back to GCS
-        gsutil cp $$TMP_JSON gs://$_GCS_BUCKET/api_state.json
+        gsutil cp $TMP_JSON gs://$_GCS_BUCKET/api_state.json
         echo "[GCS] Updated api_state.json with latest API versions"
 
   # ==========================================
