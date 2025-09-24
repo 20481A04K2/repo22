@@ -189,8 +189,8 @@ steps:
         echo "[GCS] Uploading API ZIPs..."
         for ZIP_FILE in /workspace/*-$${VERSION_TAG}.zip; do
           API_NAME=$$(basename "$$ZIP_FILE" | cut -d'-' -f1)
-          gsutil cp "$$ZIP_FILE" gs://$GCS_BUCKET/$$API_NAME/$${VERSION_TAG}.zip
-          echo "[GCS] Uploaded $$ZIP_FILE to gs://$$GCS_BUCKET/$$API_NAME/"
+          gsutil cp "$$ZIP_FILE" gs://$_GCS_BUCKET/$$API_NAME/$${VERSION_TAG}.zip
+          echo "[GCS] Uploaded $$ZIP_FILE to gs://$_GCS_BUCKET/$$API_NAME/"
         done
 
   # ==========================================
@@ -214,7 +214,7 @@ steps:
         done
 
         # Upload updated JSON to GCS
-        gsutil cp $$TMP_JSON gs://$$GCS_BUCKET/api_state.json
+        gsutil cp $$TMP_JSON gs://$_GCS_BUCKET/api_state.json
         echo "[GCS] Updated api_state.json with latest versions"
 
 timeout: 3600s
