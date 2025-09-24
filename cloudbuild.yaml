@@ -196,6 +196,7 @@ steps:
     args:
       - -c
       - |
+        apt-get update && apt-get install -y jq
         source /workspace/version.env
         TMP_JSON=/workspace/api_state.json
 
