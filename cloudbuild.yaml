@@ -171,7 +171,7 @@ steps:
           cd "$$API_NAME"
 
           # Create ZIP of API folder
-          zip -r "/workspace/${API_NAME}-${VERSION_TAG}.zip" *
+          zip -r "/workspace/$${API_NAME}-$${VERSION_TAG}.zip" *
 
           cd ..
         done
@@ -187,8 +187,8 @@ steps:
       - |
         source /workspace/version.env
         echo "[GCS] Uploading API ZIPs..."
-        for ZIP_FILE in /workspace/*-${VERSION_TAG}.zip; do
-          API_NAME=$(basename "$$ZIP_FILE" | cut -d'-' -f1)
+        for ZIP_FILE in /workspace/*-$${VERSION_TAG}.zip; do
+          API_NAME=$$(basename "$$ZIP_FILE" | cut -d'-' -f1)
           gsutil cp "$$ZIP_FILE" gs://$GCS_BUCKET/$$API_NAME/$${VERSION_TAG}.zip
           echo "[GCS] Uploaded $$ZIP_FILE to gs://$GCS_BUCKET/$$API_NAME/"
         done
@@ -204,17 +204,17 @@ steps:
       - |
         source /workspace/version.env
         TMP_JSON=/workspace/api_state.json
-        echo "{}" > $TMP_JSON
+        echo "{}" > $$TMP_JSON
 
-        for API_ZIP in /workspace/*-${VERSION_TAG}.zip; do
-          API_NAME=$(basename "$API_ZIP" | cut -d'-' -f1)
+        for API_ZIP in /workspace/*-$${VERSION_TAG}.zip; do
+          API_NAME=$$(basename "$$API_ZIP" | cut -d'-' -f1)
           # Update JSON with latest version for each API
-          jq --arg api "$API_NAME" --arg version "$VERSION_TAG" '.[$api]=$version' $TMP_JSON > tmp.$$.json
-          mv tmp.$$.json $TMP_JSON
+          jq --arg api "$$API_NAME" --arg version "$$VERSION_TAG" '.[$$api]=$$version' $$TMP_JSON > tmp.$$.json
+          mv tmp.$$.json $$TMP_JSON
         done
 
         # Upload updated JSON to GCS
-        gsutil cp $TMP_JSON gs://$GCS_BUCKET/api_state.json
+        gsutil cp $$TMP_JSON gs://$$GCS_BUCKET/api_state.json
         echo "[GCS] Updated api_state.json with latest versions"
 
 timeout: 3600s
