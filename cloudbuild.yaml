@@ -10,93 +10,87 @@ steps:
         echo "Checking current trigger against actively running triggers..."
 
         WATCHED_TRIGGERS=("trigger-1" "trigger-3")
-        CURRENT_TRIGGER="$${_TRIGGER_NAME:-trigger-2}"
+        CURRENT_TRIGGER="${_TRIGGER_NAME:-trigger-2}"
 
-        echo "Current Trigger: $$CURRENT_TRIGGER"
+        echo "Current Trigger: $CURRENT_TRIGGER"
 
-        # Automatically fetch current build ID for this build
-        CURRENT_BUILD_ID=$$(gcloud builds list --region=asia-east1 \
-          --filter="status=(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$CURRENT_TRIGGER" \
-          --sort-by="~createTime" --limit=1 \
-          --format="value(id)")
-
-        if [[ -z "$$CURRENT_BUILD_ID" ]]; then
-          echo "ERROR: Could not determine current build ID."
+        # Current build ID is automatically set by Cloud Build
+        CURRENT_BUILD_ID="$BUILDER_BUILD_ID"
+        if [[ -z "$CURRENT_BUILD_ID" ]]; then
+          echo "ERROR: Could not determine current build ID from BUILDER_BUILD_ID."
           exit 1
         fi
 
         # Fetch current build start time
-        CURRENT_START_TIME=$$(gcloud builds describe $$CURRENT_BUILD_ID --region=asia-east1 --format="value(createTime)")
-        CURRENT_START_EPOCH=$$(date -u -d "$$CURRENT_START_TIME" +%s)
-
-        echo "Current build $$CURRENT_BUILD_ID started at: $$CURRENT_START_TIME (epoch: $$CURRENT_START_EPOCH)"
+        CURRENT_START_TIME=$(gcloud builds describe "$CURRENT_BUILD_ID" --region=asia-east1 --format="value(createTime)")
+        CURRENT_START_EPOCH=$(date -u -d "$CURRENT_START_TIME" +%s)
+        echo "Current build $CURRENT_BUILD_ID started at: $CURRENT_START_TIME (epoch: $CURRENT_START_EPOCH)"
 
         wait_for_build() {
-          local TRIGGER_NAME=$$1
-          local BUILD_ID=$$2
+          local TRIGGER_NAME=$1
+          local BUILD_ID=$2
           while true; do
-            STATUS=$$(gcloud builds describe $$BUILD_ID --region=asia-east1 --format="value(status)")
-            if [[ "$$STATUS" == "SUCCESS" || "$$STATUS" == "FAILURE" || "$$STATUS" == "CANCELLED" ]]; then
-              echo "$$TRIGGER_NAME build $$BUILD_ID finished with $$STATUS"
+            STATUS=$(gcloud builds describe "$BUILD_ID" --region=asia-east1 --format="value(status)")
+            if [[ "$STATUS" == "SUCCESS" || "$STATUS" == "FAILURE" || "$STATUS" == "CANCELLED" ]]; then
+              echo "$TRIGGER_NAME build $BUILD_ID finished with $STATUS"
               break
             fi
-            echo "$$TRIGGER_NAME build $$BUILD_ID still running, waiting 15s..."
+            echo "$TRIGGER_NAME build $BUILD_ID still running, waiting 15s..."
             sleep 15
           done
         }
 
         # =========================
-        # Wait for earlier builds of the SAME trigger (time-based)
+        # Wait for earlier builds of the SAME trigger
         # =========================
-        SAME_TRIGGER_BUILDS=$$(gcloud builds list --region=asia-east1 \
-          --filter="status=(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$CURRENT_TRIGGER" \
+        SAME_TRIGGER_BUILDS=$(gcloud builds list --region=asia-east1 \
+          --filter="status=(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$CURRENT_TRIGGER" \
           --sort-by="createTime" \
           --format="value(id,createTime)")
 
-        for BUILD_INFO in $$SAME_TRIGGER_BUILDS; do
-          BUILD_ID=$$(echo $$BUILD_INFO | awk '{print $$1}')
-          BUILD_START=$$(echo $$BUILD_INFO | awk '{print $$2}')
-          BUILD_EPOCH=$$(date -u -d "$$BUILD_START" +%s)
+        for BUILD_INFO in $SAME_TRIGGER_BUILDS; do
+          BUILD_ID=$(echo "$BUILD_INFO" | awk '{print $1}')
+          BUILD_START=$(echo "$BUILD_INFO" | awk '{print $2}')
+          BUILD_EPOCH=$(date -u -d "$BUILD_START" +%s)
 
           # Skip the current build itself
-          if [[ "$$BUILD_ID" == "$$CURRENT_BUILD_ID" ]]; then
+          if [[ "$BUILD_ID" == "$CURRENT_BUILD_ID" ]]; then
             continue
           fi
 
-          if [[ $$BUILD_EPOCH -lt $$CURRENT_START_EPOCH ]]; then
-            echo "⏳ Waiting for previous build $$BUILD_ID of same trigger ($$CURRENT_TRIGGER) started at $$BUILD_START..."
-            wait_for_build "$$CURRENT_TRIGGER" "$$BUILD_ID"
+          if [[ $BUILD_EPOCH -lt $CURRENT_START_EPOCH ]]; then
+            echo "⏳ Waiting for previous build $BUILD_ID of same trigger ($CURRENT_TRIGGER) started at $BUILD_START..."
+            wait_for_build "$CURRENT_TRIGGER" "$BUILD_ID"
           fi
         done
 
         # =========================
-        # Wait for earlier builds of other triggers (time-based)
+        # Wait for earlier builds of other triggers
         # =========================
-        for TRIGGER in "$${WATCHED_TRIGGERS[@]}"; do
-          if [[ "$$TRIGGER" == "$$CURRENT_TRIGGER" ]]; then
+        for TRIGGER in "${WATCHED_TRIGGERS[@]}"; do
+          if [[ "$TRIGGER" == "$CURRENT_TRIGGER" ]]; then
             continue
           fi
 
-          BUILD_INFO=$$(gcloud builds list --region=asia-east1 \
-            --filter="status=(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$TRIGGER" \
-            --sort-by="~createTime" --limit=1 --format="value(id,createTime)")
+          BUILD_INFO=$(gcloud builds list --region=asia-east1 \
+            --filter="status=(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$TRIGGER" \
+            --sort-by="createTime" --format="value(id,createTime)")
 
-          if [[ -z "$$BUILD_INFO" ]]; then
-            echo "No running build found for $$TRIGGER, skipping."
-            continue
-          fi
+          for INFO in $BUILD_INFO; do
+            BUILD_ID=$(echo "$INFO" | awk '{print $1}')
+            BUILD_START=$(echo "$INFO" | awk '{print $2}')
+            BUILD_EPOCH=$(date -u -d "$BUILD_START" +%s)
 
-          BUILD_ID=$$(echo "$$BUILD_INFO" | awk '{print $$1}')
-          BUILD_START=$$(echo "$$BUILD_INFO" | awk '{print $$2}')
-          BUILD_EPOCH=$$(date -u -d "$$BUILD_START" +%s)
-
-          if [[ $$BUILD_EPOCH -lt $$CURRENT_START_EPOCH ]]; then
-            echo "⏳ Waiting for earlier build $$BUILD_ID of trigger $$TRIGGER started at $$BUILD_START..."
-            wait_for_build "$$TRIGGER" "$$BUILD_ID"
-          fi
+            if [[ $BUILD_EPOCH -lt $CURRENT_START_EPOCH ]]; then
+              echo "⏳ Waiting for earlier build $BUILD_ID of trigger $TRIGGER started at $BUILD_START..."
+              wait_for_build "$TRIGGER" "$BUILD_ID"
+            fi
+          done
         done
 
-        echo "✅ All earlier builds completed → proceeding with current trigger $$CURRENT_TRIGGER."
+        echo "✅ All earlier builds completed → proceeding with current trigger $CURRENT_TRIGGER."
+
+
 
 
   # ==========================================
