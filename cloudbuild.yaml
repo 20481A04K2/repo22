@@ -196,25 +196,25 @@ steps:
     args:
       - -c
       - |
+        # Install jq if not available
         apt-get update && apt-get install -y jq
         source /workspace/version.env
         TMP_JSON=/workspace/api_state.json
-
-        # Fetch existing JSON or initialize
-        if gsutil cp gs://$_GCS_BUCKET/api_state.json $$TMP_JSON 2>/dev/null; then
-          echo "[GCS] Fetched existing api_state.json"
-        else
+        # Fetch existing JSON from GCS, or create empty if missing
+        if ! gsutil cp gs://$_GCS_BUCKET/api_state.json $$TMP_JSON 2>/dev/null; then
           echo "{}" > $$TMP_JSON
-          echo "[GCS] Initialized new api_state.json"
         fi
+        for API_ZIP in /workspace/*-$${VERSION_TAG}.zip; do
+          API_NAME=$$(basename "$$API_ZIP" | cut -d'-' -f1)
+          # Update or add only the API built in this run
+          jq --arg api "$$API_NAME" --arg version "$$VERSION_TAG" '.[$api]=$version' $$TMP_JSON > tmp.$$.json
+          mv tmp.$$.json $$TMP_JSON
+       done
+       # Upload updated JSON back to GCS
+       gsutil cp $$TMP_JSON gs://$_GCS_BUCKET/api_state.json
+       echo "[GCS] Updated api_state.json with latest API versions"
+       
 
-        # Update JSON with the single API version
-        jq --arg api "${_API_NAME}" --arg version "$$VERSION_TAG" '.[$$api]=$$version' $$TMP_JSON > tmp.$$.json
-        mv tmp.$$.json $$TMP_JSON
-
-        # Upload updated JSON
-        gsutil cp $$TMP_JSON gs://$_GCS_BUCKET/api_state.json
-        echo "[GCS] Updated api_state.json with ${_API_NAME} version $$VERSION_TAG"
 
 timeout: 3600s
 options:
