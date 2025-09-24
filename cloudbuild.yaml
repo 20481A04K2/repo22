@@ -146,7 +146,7 @@ steps:
         echo "Generated version: $$VERSION_TAG"
 
   # ==========================================
-  # Step 2: Build APIs and create ZIPs
+  # Step 2: Clone GitHub repo
   # ==========================================
   - name: gcr.io/cloud-builders/git
     id: clone-repo
@@ -155,46 +155,39 @@ steps:
       - https://github.com/${_GITHUB_REPO}.git
       - /workspace/app
 
+  # ==========================================
+  # Step 3: Build the specified API and create ZIP
+  # ==========================================
   - name: 'python:3.11'
-    id: build-apis
+    id: build-api
     entrypoint: bash
     args:
       - -c
       - |
         source /workspace/version.env
-        cd /workspace/app
+        cd /workspace/app/${_API_NAME}
 
-        # Assume each API is in a folder api1, api2, ...
-        for API in */; do
-          API_NAME=$${API%/}
-          echo "[BUILD] Processing $$API_NAME..."
-          cd "$$API_NAME"
+        echo "[BUILD] Processing ${_API_NAME}..."
 
-          # Create ZIP of API folder
-          zip -r "/workspace/$${API_NAME}-$${VERSION_TAG}.zip" *
-
-          cd ..
-        done
+        # Create ZIP of API folder
+        zip -r "/workspace/${_API_NAME}-$${VERSION_TAG}.zip" *
 
   # ==========================================
-  # Step 3: Upload API ZIPs to GCS
+  # Step 4: Upload API ZIP to GCS
   # ==========================================
   - name: gcr.io/cloud-builders/gsutil
-    id: upload-zips
+    id: upload-zip
     entrypoint: bash
     args:
       - -c
       - |
         source /workspace/version.env
-        echo "[GCS] Uploading API ZIPs..."
-        for ZIP_FILE in /workspace/*-$${VERSION_TAG}.zip; do
-          API_NAME=$$(basename "$$ZIP_FILE" | cut -d'-' -f1)
-          gsutil cp "$$ZIP_FILE" gs://$_GCS_BUCKET/$$API_NAME/$${VERSION_TAG}.zip
-          echo "[GCS] Uploaded $$ZIP_FILE to gs://$_GCS_BUCKET/$$API_NAME/"
-        done
+        echo "[GCS] Uploading ${_API_NAME} ZIP..."
+        gsutil cp "/workspace/${_API_NAME}-$${VERSION_TAG}.zip" gs://$_GCS_BUCKET/${_API_NAME}/$${VERSION_TAG}.zip
+        echo "[GCS] Uploaded /workspace/${_API_NAME}-$${VERSION_TAG}.zip to gs://$_GCS_BUCKET/${_API_NAME}/"
 
   # ==========================================
-  # Step 4: Update api_state.json in GCS
+  # Step 5: Update api_state.json in GCS
   # ==========================================
   - name: gcr.io/cloud-builders/gsutil
     id: update-json
@@ -204,18 +197,22 @@ steps:
       - |
         source /workspace/version.env
         TMP_JSON=/workspace/api_state.json
-        echo "{}" > $$TMP_JSON
 
-        for API_ZIP in /workspace/*-$${VERSION_TAG}.zip; do
-          API_NAME=$$(basename "$$API_ZIP" | cut -d'-' -f1)
-          # Update JSON with latest version for each API
-          jq --arg api "$$API_NAME" --arg version "$$VERSION_TAG" '.[$$api]=$$version' $$TMP_JSON > tmp.$$.json
-          mv tmp.$$.json $$TMP_JSON
-        done
+        # Fetch existing JSON or initialize
+        if gsutil cp gs://$_GCS_BUCKET/api_state.json $$TMP_JSON 2>/dev/null; then
+          echo "[GCS] Fetched existing api_state.json"
+        else
+          echo "{}" > $$TMP_JSON
+          echo "[GCS] Initialized new api_state.json"
+        fi
 
-        # Upload updated JSON to GCS
+        # Update JSON with the single API version
+        jq --arg api "${_API_NAME}" --arg version "$$VERSION_TAG" '.[$$api]=$$version' $$TMP_JSON > tmp.$$.json
+        mv tmp.$$.json $TMP_JSON
+
+        # Upload updated JSON
         gsutil cp $$TMP_JSON gs://$_GCS_BUCKET/api_state.json
-        echo "[GCS] Updated api_state.json with latest versions"
+        echo "[GCS] Updated api_state.json with ${_API_NAME} version $$VERSION_TAG"
 
 timeout: 3600s
 options:
@@ -224,3 +221,4 @@ substitutions:
   _GITHUB_REPO: "20481A04K2/repo22"
   _TRIGGER_NAME: "trigger-1"
   _GCS_BUCKET: "inosuke-wasi-wasi"
+  _API_NAME: "api2"  
