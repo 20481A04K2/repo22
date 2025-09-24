@@ -7,52 +7,54 @@ steps:
     args:
       - '-c'
       - |
-        echo "Checking actively running triggers..."
-        WATCHED_TRIGGERS=("trigger-1" "trigger-3")
+        echo "Checking for ongoing builds of the current trigger..."
         CURRENT_TRIGGER="$${_TRIGGER_NAME:-trigger-2}"
 
-        # Get all running/queued builds for current trigger, sorted by createTime
-        SAME_TRIGGER_BUILDS=$$(gcloud builds list --region=asia-east1 \
+        # Get all ongoing builds (WORKING or QUEUED) for the same trigger
+        ONGOING_BUILDS=$$(gcloud builds list --region=asia-east1 \
           --filter="status:(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$CURRENT_TRIGGER" \
           --sort-by="createTime" \
           --format="value(id,createTime)")
 
         # Convert to array
-        mapfile -t BUILDS_ARRAY <<< "$$SAME_TRIGGER_BUILDS"
+        mapfile -t BUILDS_ARRAY <<< "$$ONGOING_BUILDS"
 
-        # Remove the latest build (assume it’s the current build itself)
-        if [ $${#BUILDS_ARRAY[@]} -gt 0 ]; then
-          unset 'BUILDS_ARRAY[-1]'
-        fi
+        # Get the current build's approximate start time
+        CURRENT_BUILD_TIME=$$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
         wait_for_build() {
           local BUILD_ID=$$1
-          local TRIGGER_NAME=$$2
           while true; do
             STATUS=$$(gcloud builds describe $$BUILD_ID --region=asia-east1 --format="value(status)")
             if [[ "$$STATUS" == "SUCCESS" || "$$STATUS" == "FAILURE" || "$$STATUS" == "CANCELLED" ]]; then
-              echo "$$TRIGGER_NAME build $$BUILD_ID finished with $$STATUS"
+              echo "Build $$BUILD_ID finished with $$STATUS"
               break
             fi
-            echo "$$TRIGGER_NAME build $$BUILD_ID still running, waiting 15s..."
+            echo "Build $$BUILD_ID still running, waiting 15s..."
             sleep 15
           done
         }
 
-        # Wait for previous builds of the same trigger
+        # Flag to track if we are first build
+        FIRST_BUILD=true
+
         for BUILD_INFO in "$${BUILDS_ARRAY[@]}"; do
           BUILD_ID=$$(echo $$BUILD_INFO | awk '{print $$1}')
           BUILD_START=$$(echo $$BUILD_INFO | awk '{print $$2}')
-          echo "⏳ Waiting for earlier build $$BUILD_ID of $$CURRENT_TRIGGER started at $$BUILD_START..."
-          wait_for_build $$BUILD_ID $$CURRENT_TRIGGER
+
+          # Only wait for builds started before current build
+          if [[ "$$BUILD_START" < "$$CURRENT_BUILD_TIME" ]]; then
+            FIRST_BUILD=false
+            echo "⏳ Waiting for earlier build $$BUILD_ID of trigger $$CURRENT_TRIGGER started at $$BUILD_START..."
+            wait_for_build $$BUILD_ID
+          fi
         done
 
-
-        echo "✅ All earlier builds completed → proceeding with current trigger $$CURRENT_TRIGGER"
-
-
-
-
+        if [[ "$$FIRST_BUILD" == true ]]; then
+          echo "✅ This is the first running build for trigger $$CURRENT_TRIGGER. Skipping wait."
+        else
+          echo "✅ All earlier builds completed → proceeding with current trigger $$CURRENT_TRIGGER."
+        fi
 
   # ==========================================
   # Step 1: Generate version tag
