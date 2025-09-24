@@ -14,8 +14,18 @@ steps:
 
         echo "Current Trigger: $$CURRENT_TRIGGER"
 
-        # Use the environment variable BUILD_ID for the current build
-        CURRENT_BUILD_ID="$${BUILD_ID}"
+        # Automatically fetch current build ID for this build
+        CURRENT_BUILD_ID=$$(gcloud builds list --region=asia-east1 \
+          --filter="status=(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$CURRENT_TRIGGER" \
+          --sort-by="~createTime" --limit=1 \
+          --format="value(id)")
+
+        if [[ -z "$$CURRENT_BUILD_ID" ]]; then
+          echo "ERROR: Could not determine current build ID."
+          exit 1
+        fi
+
+        # Fetch current build start time
         CURRENT_START_TIME=$$(gcloud builds describe $$CURRENT_BUILD_ID --region=asia-east1 --format="value(createTime)")
         CURRENT_START_EPOCH=$$(date -u -d "$$CURRENT_START_TIME" +%s)
 
@@ -33,18 +43,13 @@ steps:
             echo "$$TRIGGER_NAME build $$BUILD_ID still running, waiting 15s..."
             sleep 15
           done
-          if [[ "$$STATUS" == "SUCCESS" ]]; then
-            echo "$$TRIGGER_NAME succeeded"
-          else
-            echo "$$TRIGGER_NAME failed/cancelled"
-          fi
         }
 
         # =========================
         # Wait for earlier builds of the SAME trigger (time-based)
         # =========================
         SAME_TRIGGER_BUILDS=$$(gcloud builds list --region=asia-east1 \
-          --filter="status:(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$CURRENT_TRIGGER" \
+          --filter="status=(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$CURRENT_TRIGGER" \
           --sort-by="createTime" \
           --format="value(id,createTime)")
 
@@ -73,7 +78,7 @@ steps:
           fi
 
           BUILD_INFO=$$(gcloud builds list --region=asia-east1 \
-            --filter="status:(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$TRIGGER" \
+            --filter="status=(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$TRIGGER" \
             --sort-by="~createTime" --limit=1 --format="value(id,createTime)")
 
           if [[ -z "$$BUILD_INFO" ]]; then
@@ -92,8 +97,6 @@ steps:
         done
 
         echo "✅ All earlier builds completed → proceeding with current trigger $$CURRENT_TRIGGER."
-
-       
 
 
   # ==========================================
