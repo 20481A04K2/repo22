@@ -208,7 +208,7 @@ steps:
 
         # Update JSON with the single API version
         jq --arg api "${_API_NAME}" --arg version "$$VERSION_TAG" '.[$$api]=$$version' $$TMP_JSON > tmp.$$.json
-        mv tmp.$$.json $TMP_JSON
+        mv tmp.$$.json $$TMP_JSON
 
         # Upload updated JSON
         gsutil cp $$TMP_JSON gs://$_GCS_BUCKET/api_state.json
