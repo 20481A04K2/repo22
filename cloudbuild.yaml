@@ -218,6 +218,7 @@ steps:
           echo "Updating ${_API_NAME} with version $$VERSION_TAG"
           jq --arg api "${_API_NAME}" --arg version "$$VERSION_TAG" '.[$api]=$version' $$TMP_JSON > tmp.json
           mv tmp.json $$TMP_JSON
+          echo "ZIP found for ${_API_NAME}, skipping.. $$TMP_JSON."
         else
           echo "No ZIP found for ${_API_NAME}, skipping.. $$TMP_JSON."
         fi
