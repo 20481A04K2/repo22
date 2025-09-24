@@ -10,7 +10,6 @@ steps:
         echo "Checking current trigger against actively running triggers..."
 
         WATCHED_TRIGGERS=("trigger-1" "trigger-3")
-
         CURRENT_TRIGGER="$${_TRIGGER_NAME:-trigger-2}"
 
         echo "Current Trigger: $$CURRENT_TRIGGER"
@@ -29,7 +28,10 @@ steps:
         CURRENT_BUILD_ID=$$(echo "$$CURRENT_BUILD_INFO" | awk '{print $$1}')
         CURRENT_START_TIME=$$(echo "$$CURRENT_BUILD_INFO" | awk '{print $$2}')
 
-        echo "Current build $$CURRENT_BUILD_ID started at: $$CURRENT_START_TIME"
+        # Convert current build start time to epoch seconds
+        CURRENT_START_EPOCH=$$(date -d "$$CURRENT_START_TIME" +%s)
+
+        echo "Current build $$CURRENT_BUILD_ID started at: $$CURRENT_START_TIME (epoch: $$CURRENT_START_EPOCH)"
 
         wait_for_build() {
           local TRIGGER_NAME=$$1
@@ -51,7 +53,7 @@ steps:
         }
 
         # =========================
-        # Wait for earlier builds of the SAME trigger (time-based)
+        # Wait for earlier builds of the SAME trigger (time-based with seconds)
         # =========================
         SAME_TRIGGER_BUILDS=$$(gcloud builds list --region=asia-southeast1 \
           --filter="status:(WORKING OR QUEUED) AND substitutions.TRIGGER_NAME=$$CURRENT_TRIGGER" \
@@ -61,14 +63,16 @@ steps:
         for BUILD_INFO in $$SAME_TRIGGER_BUILDS; do
           BUILD_ID=$$(echo $$BUILD_INFO | awk '{print $$1}')
           BUILD_START=$$(echo $$BUILD_INFO | awk '{print $$2}')
-          if [[ "$$BUILD_START" < "$$CURRENT_START_TIME" ]]; then
+          BUILD_EPOCH=$$(date -d "$$BUILD_START" +%s)
+
+          if [[ $$BUILD_EPOCH -lt $$CURRENT_START_EPOCH ]]; then
             echo "⏳ Waiting for previous build $$BUILD_ID of same trigger ($$CURRENT_TRIGGER) started at $$BUILD_START..."
             wait_for_build "$$CURRENT_TRIGGER" "$$BUILD_ID"
           fi
         done
 
         # =========================
-        # Wait for earlier builds of other triggers (time-based)
+        # Wait for earlier builds of other triggers (time-based with seconds)
         # =========================
         for TRIGGER in "$${WATCHED_TRIGGERS[@]}"; do
           if [[ "$$TRIGGER" == "$$CURRENT_TRIGGER" ]]; then
@@ -86,14 +90,16 @@ steps:
 
           BUILD_ID=$$(echo "$$BUILD_INFO" | awk '{print $$1}')
           BUILD_START=$$(echo "$$BUILD_INFO" | awk '{print $$2}')
+          BUILD_EPOCH=$$(date -d "$$BUILD_START" +%s)
 
-          if [[ "$$BUILD_START" < "$$CURRENT_START_TIME" ]]; then
+          if [[ $$BUILD_EPOCH -lt $$CURRENT_START_EPOCH ]]; then
             echo "⏳ Waiting for earlier build $$BUILD_ID of trigger $$TRIGGER started at $$BUILD_START..."
             wait_for_build "$$TRIGGER" "$$BUILD_ID"
           fi
         done
 
         echo "✅ All earlier builds completed → proceeding with current trigger $$CURRENT_TRIGGER."
+
 
   # ==========================================
   # Step 1: Generate version tag
