@@ -16,7 +16,7 @@ steps:
 
         # Get CURRENT build info - only if it's still running or queued
         CURRENT_BUILD_INFO=$$(gcloud builds list --region=asia-east1 \
-          --filter="status:(WORKING OR QUEUED) AND substitutions.TRIGGER_NAME=$$CURRENT_TRIGGER" \
+          --filter="status:(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$CURRENT_TRIGGER" \
           --sort-by="~createTime" --limit=1 \
           --format="value(id,createTime)")
 
@@ -27,8 +27,6 @@ steps:
 
         CURRENT_BUILD_ID=$$(echo "$$CURRENT_BUILD_INFO" | awk '{print $$1}')
         CURRENT_START_TIME=$$(echo "$$CURRENT_BUILD_INFO" | awk '{print $$2}')
-
-        # Convert current build start time to epoch seconds
         CURRENT_START_EPOCH=$$(date -d "$$CURRENT_START_TIME" +%s)
 
         echo "Current build $$CURRENT_BUILD_ID started at: $$CURRENT_START_TIME (epoch: $$CURRENT_START_EPOCH)"
@@ -53,10 +51,10 @@ steps:
         }
 
         # =========================
-        # Wait for earlier builds of the SAME trigger (time-based with seconds)
+        # Wait for earlier builds of the SAME trigger (time-based)
         # =========================
         SAME_TRIGGER_BUILDS=$$(gcloud builds list --region=asia-east1 \
-          --filter="status:(WORKING OR QUEUED) AND substitutions.TRIGGER_NAME=$$CURRENT_TRIGGER" \
+          --filter="status:(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$CURRENT_TRIGGER" \
           --sort-by="createTime" \
           --format="value(id,createTime)")
 
@@ -65,6 +63,11 @@ steps:
           BUILD_START=$$(echo $$BUILD_INFO | awk '{print $$2}')
           BUILD_EPOCH=$$(date -d "$$BUILD_START" +%s)
 
+          # Skip the current build itself
+          if [[ "$$BUILD_ID" == "$$CURRENT_BUILD_ID" ]]; then
+            continue
+          fi
+
           if [[ $$BUILD_EPOCH -lt $$CURRENT_START_EPOCH ]]; then
             echo "⏳ Waiting for previous build $$BUILD_ID of same trigger ($$CURRENT_TRIGGER) started at $$BUILD_START..."
             wait_for_build "$$CURRENT_TRIGGER" "$$BUILD_ID"
@@ -72,7 +75,7 @@ steps:
         done
 
         # =========================
-        # Wait for earlier builds of other triggers (time-based with seconds)
+        # Wait for earlier builds of other triggers (time-based)
         # =========================
         for TRIGGER in "$${WATCHED_TRIGGERS[@]}"; do
           if [[ "$$TRIGGER" == "$$CURRENT_TRIGGER" ]]; then
@@ -80,7 +83,7 @@ steps:
           fi
 
           BUILD_INFO=$$(gcloud builds list --region=asia-east1 \
-            --filter="status:(WORKING OR QUEUED) AND substitutions.TRIGGER_NAME=$$TRIGGER" \
+            --filter="status:(WORKING OR QUEUED) AND substitutions._TRIGGER_NAME=$$TRIGGER" \
             --sort-by="~createTime" --limit=1 --format="value(id,createTime)")
 
           if [[ -z "$$BUILD_INFO" ]]; then
@@ -99,6 +102,8 @@ steps:
         done
 
         echo "✅ All earlier builds completed → proceeding with current trigger $$CURRENT_TRIGGER."
+
+       
 
 
   # ==========================================
