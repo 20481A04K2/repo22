@@ -209,17 +209,27 @@ steps:
           echo "{}" > $$TMP_JSON
         fi
 
-        # Loop through all built API ZIPs
-        for API_ZIP in /workspace/*-$${VERSION_TAG}.zip; do
-          API_NAME=$$(basename "$$API_ZIP" | cut -d'-' -f1)
-          # Update or add only the API built in this run
-          jq --arg api "$_API_NAME" --arg version "$$VERSION_TAG" '.[$$api]=$$version' $$TMP_JSON > tmp.$$.json
-          mv tmp.$$.json $$TMP_JSON
+        echo "Version tag: $$VERSION_TAG"
+        echo "Workspace content:"
+        ls -l /workspace/
+
+        # Loop over API folders (api1/, api2/, api3/)
+        for API_DIR in /workspace/api*/; do
+          API_NAME=$$(basename "$$API_DIR")
+          ZIP_FILE=$$(ls "$$API_DIR"/*-$${VERSION_TAG}.zip 2>/dev/null | head -n1)
+          if [ -f "$$ZIP_FILE" ]; then
+            echo "Updating $_API_NAME with version $$VERSION_TAG"
+            jq --arg api "$_API_NAME" --arg version "$$VERSION_TAG" '.[$$api]=$$version' $$TMP_JSON > tmp.$$.json
+            mv tmp.$$.json $$TMP_JSON
+          else
+            echo "No ZIP found for $$API_NAME, skipping..."
+          fi
         done
 
         # Upload updated JSON back to GCS
         gsutil cp $$TMP_JSON gs://$_GCS_BUCKET/api_state.json
         echo "[GCS] Updated api_state.json with latest API versions"
+
 
 
 timeout: 3600s
