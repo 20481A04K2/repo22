@@ -164,6 +164,7 @@ steps:
     args:
       - -c
       - |
+        apt-get update && apt-get install -y zip
         source /workspace/version.env
         cd /workspace/app/${_API_NAME}
 
