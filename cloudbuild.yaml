@@ -190,7 +190,7 @@ steps:
         for ZIP_FILE in /workspace/*-$${VERSION_TAG}.zip; do
           API_NAME=$$(basename "$$ZIP_FILE" | cut -d'-' -f1)
           gsutil cp "$$ZIP_FILE" gs://$GCS_BUCKET/$$API_NAME/$${VERSION_TAG}.zip
-          echo "[GCS] Uploaded $$ZIP_FILE to gs://$GCS_BUCKET/$$API_NAME/"
+          echo "[GCS] Uploaded $$ZIP_FILE to gs://$$GCS_BUCKET/$$API_NAME/"
         done
 
   # ==========================================
@@ -223,4 +223,4 @@ options:
 substitutions:
   _GITHUB_REPO: "20481A04K2/repo22"
   _TRIGGER_NAME: "trigger-1"
-  GCS_BUCKET: "inosuke-wasi-wasi"
+  _GCS_BUCKET: "inosuke-wasi-wasi"
