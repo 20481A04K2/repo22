@@ -7,7 +7,7 @@ steps:
       - |
         REGION="$${_REGION:-asia-east1}"
         CURRENT_TRIGGER="$${_TRIGGER_NAME}"
-        CURRENT_BUILD_ID="$${BUILD_ID}"
+        CURRENT_BUILD_ID="${BUILD_ID}"
 
         echo "🔎 Checking for previous builds of trigger $${CURRENT_TRIGGER}..."
         echo "Current Build ID: $${CURRENT_BUILD_ID}"
