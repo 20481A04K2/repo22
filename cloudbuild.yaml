@@ -1,11 +1,12 @@
 steps:
   # ==========================================
-  # Step 1: Wait logic for running triggers
+  # Step 1: Wait logic for running triggers and MIG VM readiness
   # ==========================================
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
     args:
-      - '-c'
-      - >
+      - -c
+      - |
         echo "Checking current trigger against actively running triggers..."
 
         WATCHED_TRIGGERS=("trigger-1" "trigger-3")
