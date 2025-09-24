@@ -213,7 +213,7 @@ steps:
         for API_ZIP in /workspace/*-$${VERSION_TAG}.zip; do
           API_NAME=$$(basename "$$API_ZIP" | cut -d'-' -f1)
           # Update or add only the API built in this run
-          jq --arg api "$$API_NAME" --arg version "$$VERSION_TAG" '.[$api]=$version' $$TMP_JSON > tmp.$$.json
+          jq --arg api "$_API_NAME" --arg version "$$VERSION_TAG" '.[$$api]=$$version' $$TMP_JSON > tmp.$$.json
           mv tmp.$$.json $$TMP_JSON
         done
 
