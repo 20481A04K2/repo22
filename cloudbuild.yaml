@@ -148,6 +148,7 @@ steps:
         source /workspace/version.env
         echo "[GCS] Uploading ${_API_NAME} ZIP..."
         gsutil cp "/workspace/${_API_NAME}-$${VERSION_TAG}.zip" gs://$_GCS_BUCKET/${_API_NAME}/$${VERSION_TAG}.zip
+        sleep 600
         echo "[GCS] Uploaded /workspace/${_API_NAME}-$${VERSION_TAG}.zip to gs://$_GCS_BUCKET/${_API_NAME}/"
 
   # ==========================================
